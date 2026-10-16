@@ -1,0 +1,705 @@
+---
+title: 'Script 3: Analyze Task Data'
+author: "Rikki Lissaman"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Overview
+
+## Code Description
+
+This script contains code that imports trial-level behavioral (task) data from the onset files and cleans it. Key demographic and biomarker data - generated via script-2_analyze-demo-biomarker-cvlt.Rmd - are then imported and incorporated into the trial-level dataset. Analyses are then performed and figures exported.
+
+Important note: sub-XXXX had Hard run 1 excluded from their onset file erroneously. This has been manually amended in the data imported here. Please ensure this is the case before re-running.
+
+Input(s):
+
+  * Onset files (.xlsx) for each participant (n = 129) of interest.
+
+Output(s):
+
+  * Three images (.pdf) showing key behavioral findings.
+  
+Note: Identifiable information (e.g., file names, subject IDs) have been replaced by placeholders (e.g., subject IDs appear as XXXX).
+  
+# Packages
+
+Load packages.
+```{r, message = FALSE}
+library(tidyr) # version 1.3.1
+library(dplyr) # version 1.1.4
+library(readr) # version 2.1.5
+library(readxl) # version 1.4.3
+library(janitor) # version 2.2.0
+library(lme4) # version 1.1-35.1
+library(afex) # version 1.3-0
+library(performance) # version 0.13.0
+library(DHARMa) # version 0.4.7
+library(emmeans) # version 1.10.0
+library(ggplot2) # version 3.5.0
+library(Cairo) # version 1.6-2
+library(ggeffects) # version 1.4.0
+```
+
+# Import Data
+
+Input path to the data folder.
+```{r}
+folder_path <- "/insert/path/to/folder"
+```
+
+Create a list of all the Excel files in the data folder.
+```{r}
+file_list <- list.files(path = folder_path, pattern = "\\.xlsx$", full.names = TRUE)
+```
+
+Read the Excel files into R and merge them together into one data frame.
+```{r}
+all_data <- lapply(file_list, function(file) {
+  df <- read_excel(file, sheet = "RETRIEVAL", range = 'A1:L193')
+  df$filename <- basename(file) # Add filename column
+  return(df)
+}) %>% bind_rows()
+```
+
+# Clean Data
+
+Convert names to lower case.
+```{r}
+all_data <- clean_names(all_data)
+```
+
+Combine difficulty and "difficqlty".
+```{r}
+all_data <- all_data %>%
+  mutate(difficulty = coalesce(difficulty, difficqlty)) %>%
+  select(-difficqlty)  # Remove the misspelled column
+```
+
+Drop column that isn't needed.
+```{r}
+all_data <- select(all_data, -c(synch_time))
+```
+
+Rename filename column to id.
+```{r}
+all_data <- rename(all_data, id = filename)
+```
+
+Replace first part of ID column.
+```{r}
+all_data$id <- str_replace_all(all_data$id, pattern = "Onsets_fMRI_CIHR2017_subj", replacement = "")
+```
+
+Replace last part of ID column.
+```{r}
+all_data$id <- str_replace_all(all_data$id, pattern = ".xlsx", replacement = "")
+```
+
+Reorder columns so ID is at the start.
+```{r}
+all_data <- relocate(all_data, id)
+```
+
+Remove hard run 1 (actually run 5) for sub-XXXX (too many UEs).
+```{r}
+all_data <- all_data %>% filter(!(id == XXXX & run == 5))
+```
+
+Get a summary of the data.
+```{r}
+summary(all_data)
+```
+
+As a sanity check, calculate the cs_rate for the easy and hard task. Start by excluding NEW trials, then group data by id (n = 132) and difficulty (easy/hard). Finally, sum the number of trials and the correct source responses, then divide the latter by the former to give the correct source rate.
+```{r}
+summary_cs <- all_data %>%
+  filter(enc_location %in% c("LB", "LT", "RB", "RT")) %>%
+  group_by(id, difficulty) %>%
+  summarise(n = n(),
+            cs_n = sum(ret_acc, na.rm = T),
+            cs_rate = cs_n / n) # values line up with BHAMM master
+```
+
+As an additional sanity check, calculate the cr_rate for the easy and hard task. Start by excluding OLD trials, then group data by id (n = 132) and difficulty (easy/hard). Finally, sum the number of trials and the correct rejection responses, then divide the latter by the former to give the correct source rate.
+```{r}
+summary_cr <- all_data %>%
+  filter(enc_location == "NEW") %>%
+  group_by(id, difficulty) %>%
+  summarise(n = n(),
+            cr_n = sum(ret_acc, na.rm = T),
+            cr_rate = cr_n / n) # values line up with BHAMM master
+```
+
+# Generate Key Data
+
+## Demographic and Biomarker Data
+
+Import demographic data for all participants.
+```{r}
+demo_data <- read_csv("insert-file-name.csv") %>%
+  mutate(id = as.character(id)) 
+```
+
+Import IDs for participants who have valid AB42/40 ratio.
+```{r}
+ab_ids <- read_csv("insert-file-name.txt") %>%
+  mutate(id = as.character(id))
+```
+
+Filter demographic data so that only ID, age and AB42/40 ratio are included in a new data frame.
+```{r}
+ab_data <- demo_data %>% 
+  filter(id %in% ab_ids$id) %>% 
+  select(c(id, s2_age, ab42_to_ab40_s2))
+```
+
+Generate standardized versions of age and AB42/40 ratio.
+```{r}
+ab_data <- ab_data %>%
+  mutate(age_std = scale(s2_age, center = TRUE, scale = TRUE),
+         ab42_ab40_std = scale(ab42_to_ab40_s2, center = TRUE, scale = TRUE)) %>%
+  mutate(age_std = as.numeric(age_std),
+         ab42_ab40_std = as.numeric(ab42_ab40_std))
+```
+
+Drop the AD biomarker columns from the demographic data (this will prevent issues with merging later).
+```{r}
+demo_data <- select(demo_data, -c(ab42_to_ab40_s2, p_tau231_s2))
+```
+
+## Correct Source Data
+
+Create a new data frame that includes only old items, focus on correct source.
+```{r}
+cs <- filter(all_data, enc_location %in% c("LB", "LT", "RB", "RT")) 
+```
+
+Create a new data frame that focuses on accuracy by stimulus.
+```{r}
+stim_cs <- cs %>% 
+  group_by(stimuli, difficulty) %>% 
+  summarise(correct = sum(ret_acc == 1),
+            incorrect = sum(ret_acc == 0),
+            na = sum(is.na(ret_acc)),
+            total_trials = sum(correct+incorrect+na),
+            rate_correct = correct / (total_trials))
+```
+
+Examine correct source rate per stimulus on the easy task.
+```{r}
+hist(stim_cs$rate_correct[stim_cs$difficulty == "Easy"])
+```
+
+Examine correct source rate per stimulus on the hard task.
+```{r}
+hist(stim_cs$rate_correct[stim_cs$difficulty == "Hard"])
+```
+
+Merge the demographic data and the correct source data.
+```{r}
+cs <- left_join(demo_data, cs, by = "id") 
+```
+
+Check number of participants.
+```{r}
+length(unique(cs$id)) 
+```
+
+Merge the AB42/40 data and the correct source + demographics data.
+```{r}
+cs_ab <- left_join(ab_data, cs, by = "id")
+```
+
+Check number of participants.
+```{r}
+length(unique(cs_ab$id)) 
+```
+
+## Correct Rejections Data
+
+Create a new data frame that includes only old items, focus on correct rejections.
+```{r}
+cr <- filter(all_data, enc_location == "NEW") 
+```
+
+Create a new data frame that focuses on accuracy by stimulus.
+```{r}
+stim_cr <- cr %>% 
+  group_by(stimuli, difficulty) %>% 
+  summarise(correct = sum(ret_acc == 1),
+            incorrect = sum(ret_acc == 0),
+            na = sum(is.na(ret_acc)),
+            total_trials = sum(correct+incorrect+na),
+            rate_correct = correct / (total_trials))
+```
+
+Examine correct rejections rate per stimulus on the easy task.
+```{r}
+hist(stim_cr$rate_correct[stim_cr$difficulty == "Easy"])
+```
+
+Examine correct rejections rate per stimulus on the hard task.
+```{r}
+hist(stim_cr$rate_correct[stim_cr$difficulty == "Hard"])
+```
+
+Merge the demographic data and the correct rejections data.
+```{r}
+cr <- left_join(demo_data, cr, by = "id") 
+```
+
+Check number of participants.
+```{r}
+length(unique(cr$id)) 
+```
+
+Merge the AB42/40 data and the correct rejections + demographics data.
+```{r}
+cr_ab <- left_join(ab_data, cr, by = "id")
+```
+
+Check number of participants.
+```{r}
+length(unique(cr_ab$id)) 
+```
+
+# Primary Analysis
+
+## Correct Source & AB42/40 Ratio
+
+Setup key variables for analysis.
+```{r}
+# convert task difficulty and APOE to factors
+cs_ab <- cs_ab %>%
+  mutate(difficulty = as_factor(difficulty),
+         apoe4_allele = as_factor(apoe4_allele))
+
+# set contrasts to deviation coding
+contrasts(cs_ab$difficulty) <- contr.sum(2)
+contrasts(cs_ab$apoe4_allele) <- contr.sum(2)
+
+# check contrasts 
+contrasts(cs_ab$difficulty) # easy = 1, hard = -1
+contrasts(cs_ab$apoe4_allele) # e4+ = 1, e4- =-1
+```
+
+Run afex model for inference (afex gives LRTs).
+```{r}
+cs_ab_model_afex <- mixed(ret_acc ~ difficulty * apoe4_allele * ab42_ab40_std + age_std + (1 + difficulty | id) + (1 | stimuli),
+                          data = cs_ab, family = binomial, method = "LRT", control = glmerControl(optimizer = c("bobyqa"), optCtrl = list(maxfun = 2e5)))
+```
+
+Run glmer model for diagnostics and plotting.
+```{r}
+cs_ab_model_glmer <- glmer(ret_acc ~ difficulty * apoe4_allele * ab42_ab40_std + age_std + (1 + difficulty | id) + (1 | stimuli),
+                           data = cs_ab, family = binomial, control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5)))
+```
+
+Check model converged.
+```{r}
+cs_ab_model_glmer@optinfo$message t
+cs_ab_model_glmer@optinfo$conv 
+```
+
+Check for singular fit.
+```{r}
+isSingular(cs_ab_model_glmer) 
+check_singularity(cs_ab_model_glmer) 
+```
+
+Check to see if the model underestimates the variance (overdispersion)
+```{r}
+check_overdispersion(cs_ab_model_glmer) 
+```
+
+Check for multicollinearity.
+```{r}
+check_collinearity(cs_ab_model_glmer) 
+```
+
+Simulate residuals from model.
+```{r}
+set.seed(123) 
+sim_res_cs_ab_model <- simulateResiduals(cs_ab_model_glmer)
+```
+
+Plot residuals from model.
+```{r}
+plot(sim_res_cs_ab_model) 
+testOutliers(sim_res_cs_ab_model, type = 'bootstrap') 
+```
+
+Check random effects structure.
+```{r}
+summary(cs_ab_model_glmer) 
+```
+
+Check significance of fixed effects using LRTs.
+```{r}
+print(cs_ab_model_afex) 
+```
+
+Post-hoc follow-up test for task difficulty.
+```{r}
+emmeans(cs_ab_model_afex, pairwise ~ difficulty, type = "response") 
+```
+
+Post-hoc follow-up test for APOE.
+```{r}
+emmeans(cs_ab_model_afex, pairwise ~ apoe4_allele, type = "response") 
+```
+
+Generate model predictions for task difficulty.
+```{r}
+pred_cs_ab_difficulty <- ggeffect(cs_ab_model_glmer, terms = c("difficulty")) %>% 
+  rename(difficulty = x, cs_rate = predicted)
+```
+
+Generate model predictions for APOE.
+```{r}
+pred_cs_ab_apoe <- ggeffect(cs_ab_model_glmer, terms = c("apoe4_allele")) %>% 
+  rename(apoe4_allele = x, cs_rate = predicted)
+```
+
+Plot the marginal effect for task difficulty.
+```{r}
+pred_cs_ab_difficulty %>%
+  ggplot(aes(x = difficulty, y = cs_rate, ymin = conf.low, ymax = conf.high, colour = difficulty, fill = difficulty)) +
+  geom_pointrange() + 
+  theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.position = "None",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_discrete(name = "Task") +
+  scale_y_continuous(name = "Predicted Probability of Correct Source Response", limits = c(0, 1)) +
+  scale_colour_manual(values = c("#CB3476", "#42BD84"), labels = c("Easy", "Hard")) +
+  scale_fill_manual(values = c("#CB3476", "#42BD84"), labels = c("Easy", "Hard"))
+```
+
+Plot the marginal effect for APOE.
+```{r}
+pred_cs_ab_apoe$apoe4_allele <- factor(pred_cs_ab_apoe$apoe4_allele, 
+                                       levels = c("e4+", "e4-")) 
+
+pred_cs_ab_apoe <- mutate(pred_cs_ab_apoe, 
+                          apoe4_allele = fct_recode(apoe4_allele, 
+                                                    "ε4+" = "e4+",
+                                                    "ε4-" = "e4-")) %>%
+  filter(!is.na(apoe4_allele))
+
+pred_cs_ab_apoe %>%
+  ggplot(aes(x = apoe4_allele, y = cs_rate, ymin = conf.low, ymax = conf.high, colour = apoe4_allele, fill = apoe4_allele)) +
+  geom_pointrange() + 
+  theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.position = "None",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_discrete(name = "APOE ε4 Carrier Status") +
+  scale_y_continuous(name = "Predicted Correct Source Accuracy", limits = c(0,  1)) +
+  scale_colour_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  annotate("segment", x = 1, xend = 2, y = 0.75, yend = 0.75, linewidth = 0.5) +
+  annotate("text", x = 1.5, y = 0.77, label = "*", size = 6)
+```
+
+Save the figure as a PDF.
+```{r}
+ggsave(filename = "insert-file-name.pdf", width = 4.5, height = 3.5, device = cairo_pdf)
+```
+
+## Correct Rejections & AB42/40 Ratio
+
+Setup key variables for analysis.
+```{r}
+# convert task difficulty and APOE to factors
+cr_ab <- cr_ab %>%
+  mutate(difficulty = as_factor(difficulty),
+         apoe4_allele = as_factor(apoe4_allele))
+
+# set contrasts to deviation coding
+contrasts(cr_ab$difficulty) <- contr.sum(2)
+contrasts(cr_ab$apoe4_allele) <- contr.sum(2)
+
+# check contrasts 
+contrasts(cr_ab$difficulty) # easy = 1, hard = -1
+contrasts(cr_ab$apoe4_allele) # e4+ = 1, e4- =-1
+```
+
+Run afex model for inference (afex gives LRTs).
+```{r}
+cr_ab_model_afex <- mixed(ret_acc ~ difficulty * apoe4_allele * ab42_ab40_std + age_std + (1 + difficulty | id) + (1 | stimuli),
+                          data = cr_ab, family = binomial, method = "LRT", control = glmerControl(optimizer = c("bobyqa"), optCtrl = list(maxfun = 2e5)))
+```
+
+Run glmer model for diagnostics and plotting.
+```{r}
+cr_ab_model_glmer <- glmer(ret_acc ~ difficulty * apoe4_allele * ab42_ab40_std + age_std + (1 + difficulty | id) + (1 | stimuli),
+                           data = cr_ab, family = binomial, control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5)))
+```
+
+Check model converged.
+```{r}
+cr_ab_model_glmer@optinfo$message 
+cr_ab_model_glmer@optinfo$conv 
+```
+
+Check for singular fit.
+```{r}
+isSingular(cr_ab_model_glmer) 
+check_singularity(cr_ab_model_glmer)
+```
+
+Check to see if the model underestimates the variance (overdispersion)
+```{r}
+check_overdispersion(cr_ab_model_glmer) 
+```
+
+Check for multicollinearity.
+```{r}
+check_collinearity(cr_ab_model_glmer) 
+```
+
+Simulate residuals from model.
+```{r}
+set.seed(123) 
+sim_res_cr_ab_model <- simulateResiduals(cr_ab_model_glmer)
+```
+
+Plot residuals from model.
+```{r}
+plot(sim_res_cr_ab_model) 
+testOutliers(sim_res_cr_ab_model, type = 'bootstrap') 
+```
+
+Check random effects structure.
+```{r}
+summary(cr_ab_model_glmer) 
+```
+
+Check significance of fixed effects using LRTs.
+```{r}
+print(cr_ab_model_afex) 
+```
+
+Post-hoc follow-up test for task difficulty.
+```{r}
+emmeans(cr_ab_model_afex, pairwise ~ difficulty, type = "response") 
+```
+
+Post-hoc follow-up test for APOE*AB42/40.
+```{r}
+emtrends(cr_ab_model_afex, pairwise ~ apoe4_allele, var = "ab42_ab40_std") %>% test() 
+```
+
+Generate model predictions for task difficulty.
+```{r}
+pred_cr_ab_difficulty <- ggeffect(cr_ab_model_glmer, terms = c("difficulty")) %>% 
+  rename(difficulty = x, cr_rate = predicted)
+```
+
+Generate model predictions for APOE*AB42/40.
+```{r}
+pred_cr_ab_apoe <- ggeffect(cr_ab_model_glmer, terms = c("ab42_ab40_std [all]", "apoe4_allele")) %>% 
+  rename(ab42_ab40 = x, cr_rate = predicted, apoe4_allele = group)
+```
+  
+Plot the marginal effect for task difficulty.
+```{r}
+pred_cs_ab_difficulty %>%
+  ggplot(aes(x = difficulty, y = cs_rate, ymin = conf.low, ymax = conf.high, colour = difficulty, fill = difficulty)) +
+  geom_pointrange() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.position = "None",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_discrete(name = "Task") +
+  scale_y_continuous(name = "Correct Source", limits = c(0, 1)) +
+  scale_colour_manual(values = c("#CB3476", "#42BD84"), labels = c("Easy", "Hard")) +
+  scale_fill_manual(values = c("#CB3476", "#42BD84"), labels = c("Easy", "Hard"))
+```
+  
+Plot the marginal effect for APOE e4*AB42/40 ratio.
+```{r}
+pred_cr_ab_apoe %>%
+  ggplot(aes(x = ab42_ab40, y = cr_rate, ymin = conf.low, ymax = conf.high, colour = apoe4_allele, fill = apoe4_allele)) +
+  geom_line(aes(x = ab42_ab40, y = cr_rate, colour = apoe4_allele)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = apoe4_allele), alpha = .2, linetype = 0) +
+  theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.title = element_blank(),
+        legend.text = element_text(family = "sans", colour = "black", size = 11),
+        legend.position = "top",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_continuous(name = "Plasma Aβ42/40 Ratio (Std.)") +
+  scale_y_continuous(name = "Correct Rejections") +
+  coord_cartesian(ylim = c(0, 1)) +
+  scale_colour_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) 
+```
+
+## Correct Rejections & AB42/40 Ratio Squared
+
+Create squared version of AB42/40 ratio.
+```{r}
+cr_ab <- cr_ab %>%
+  mutate(ab42_ab40_std_sq = ab42_ab40_std^2) 
+```
+
+Check setup key variables for analysis.
+```{r}
+# set contrasts to deviation coding
+contrasts(cr_ab$difficulty) <- contr.sum(2)
+contrasts(cr_ab$apoe4_allele) <- contr.sum(2)
+
+# check contrasts 
+contrasts(cr_ab$difficulty) # easy = 1, hard = -1
+contrasts(cr_ab$apoe4_allele) # e4+ = 1, e4- =-1
+```
+
+Run afex model for inference (afex gives LRTs).
+```{r}
+cr_ab_sq_model_afex <- mixed(ret_acc ~ difficulty * apoe4_allele * (ab42_ab40_std + ab42_ab40_std_sq) + age_std + (1 + difficulty | id) + (1 | stimuli),
+                             data = cr_ab, family = binomial, method = "LRT", control = glmerControl(optimizer = c("bobyqa"), optCtrl = list(maxfun = 2e5)))
+```
+
+Run glmer model for diagnostics and plotting.
+```{r}
+cr_ab_sq_model_glmer <- glmer(ret_acc ~ difficulty * apoe4_allele * (ab42_ab40_std + ab42_ab40_std_sq) + age_std + (1 + difficulty | id) + (1 | stimuli),
+                              data = cr_ab, family = binomial, control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5)))
+```
+
+Check model converged.
+```{r}
+cr_ab_sq_model_glmer@optinfo$message 
+cr_ab_sq_model_glmer@optinfo$conv 
+```
+
+Check for singular fit.
+```{r}
+isSingular(cr_ab_sq_model_glmer)
+check_singularity(cr_ab_sq_model_glmer) 
+```
+
+Check to see if the model underestimates the variance (overdispersion)
+```{r}
+check_overdispersion(cr_ab_sq_model_glmer) 
+```
+
+Check for multicollinearity.
+```{r}
+check_collinearity(cr_ab_sq_model_glmer) 
+```
+
+Simulate residuals from model.
+```{r}
+set.seed(123) 
+sim_res_cr_ab_sq_model <- simulateResiduals(cr_ab_sq_model_glmer)
+```
+
+Plot residuals from model.
+```{r}
+plot(sim_res_cr_ab_sq_model) 
+testOutliers(sim_res_cr_ab_sq_model, type = 'bootstrap') 
+```
+
+Check random effects structure.
+```{r}
+summary(cr_ab_sq_model_glmer) 
+```
+
+Check if the new model offers a better fit than the old.
+```{r}
+anova(cr_ab_model_glmer, cr_ab_sq_model_glmer, test = "Chisq") 
+```
+
+Check significance of fixed effects using LRTs.
+```{r}
+print(cr_ab_sq_model_afex) 
+```
+
+Post-hoc follow-up test for APOE*AB42/40.
+```{r}
+emtrends(cr_ab_sq_model_afex, pairwise ~ apoe4_allele, var = "ab42_ab40_std") %>% test() 
+```
+
+Generate model predictions for AB42/40 (squared).
+```{r}
+pred_cr_ab_sq_ab <- ggeffect(cr_ab_sq_model_glmer, terms = c("ab42_ab40_std_sq [all]")) %>%
+  rename(ab42_ab40_sq = x, cr_rate = predicted)
+```
+  
+Generate model predictions for APOE*AB42/40 ratio.
+```{r}
+pred_cr_ab_sq_apoe <- ggeffect(cr_ab_sq_model_glmer, terms = c("ab42_ab40_std [all]", "apoe4_allele")) %>% 
+  rename(ab42_ab40 = x, cr_rate = predicted, apoe4_allele = group)
+```
+
+Plot the marginal effect for AB42/40 ratio (squared).
+```{r}
+pred_cr_ab_sq_ab %>%
+  ggplot(aes(x = ab42_ab40_sq, y = cr_rate, ymin = conf.low, ymax = conf.high)) +
+  geom_line(colour = "#685aa5") +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .2, linetype = 0, fill = "#685aa5") +
+  theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.title = element_blank(),
+        legend.text = element_text(family = "sans", colour = "black", size = 11),
+        legend.position = "top",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_continuous(name = "Aβ42/40 Ratio (Std. & Sqr.)") +
+  scale_y_continuous(name = "Predicted Correct Rejections Accuracy") +
+  coord_cartesian(ylim = c(0, 1)) 
+```
+
+Save the figure as a PDF.
+```{r}
+ggsave(filename = "insert-file-name.pdf", width = 4.5, height = 3.5, device = cairo_pdf)
+```
+
+Plot the marginal effect for APOE e4*AB42/40 ratio.
+```{r}
+pred_cr_ab_sq_apoe %>%
+  ggplot(aes(x = ab42_ab40, y = cr_rate, ymin = conf.low, ymax = conf.high, colour = apoe4_allele, fill = apoe4_allele)) +
+  geom_line(aes(x = ab42_ab40, y = cr_rate, colour = apoe4_allele)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = apoe4_allele), alpha = .4, linetype = 0) +
+  theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.title = element_blank(),
+        legend.text = element_text(family = "sans", colour = "black", size = 11),
+        legend.position = "right",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_continuous(name = "Aβ42/40 Ratio (Std.)") +
+  scale_y_continuous(name = "Predicted Correct Rejections Accuracy") +
+  coord_cartesian(ylim = c(0, 1)) +
+  scale_colour_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-"))
+```
+
+Save the figure as a PDF.
+```{r}
+ggsave(filename = "insert-file-name.pdf", width = 4.5, height = 3.5, device = cairo_pdf)
+```

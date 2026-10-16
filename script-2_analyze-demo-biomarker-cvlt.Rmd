@@ -1,0 +1,842 @@
+---
+title: "Script 2: Analyze Demographic, Biomarker & Neuropsych Data"
+author: "Rikki Lissaman"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Overview
+
+## Code Description
+
+This script contains code that imports cleaned data generated via script-1_clean-data.Rmd, and then conducts three sets of analyses: one on demographics, one on plasma biomarkers of Alzheimer's disease, one on neuropsychological measures of verbal memory. Finally, the script exports data to be used in trial-level analyses.
+
+Input(s):
+
+  * SPSS file (.sav) containing cleaned Session 2 (task) data.
+
+Output(s):
+
+  * Three images (.pdf) showing differences in plasma biomarkers between APOE e4 carriers and non-carriers.
+  * CSV file (.csv) containing key demographic and biomarker data for the trial-level analysis. 
+  * Text file containing IDs for the demographic and biomarker analysis.
+
+Note: Identifiable information (e.g., file names, subject IDs) have been replaced by placeholders (e.g., subject IDs appear as XXXX).
+
+# Packages
+
+Load packages.
+```{r, message = FALSE}
+# package versions are listed to aid de-bugging - you should not need these exact versions
+library(haven) # version 2.5.4
+library(tidyr) # version 1.3.1
+library(dplyr) # version 1.1.4
+library(readr) # version 2.1.5
+library(stringr) # version 1.5.1
+library(rstatix) # version 0.7.2
+library(effectsize) # version 0.8.6
+library(BayesFactor) # version 0.9.12-4.7
+library(ggplot2) # version 3.5.0
+library(Cairo) # version 1.6-2
+library(ggpubr) # version 0.6.0
+source("R_rainclouds.R") # note that this is a separate downloaded file
+```
+
+# Import Data
+
+Import data.
+```{r}
+task <- read_sav("insert-file-name.sav")
+```
+
+# Demographics
+
+## APOE e4
+
+Count the number of APOE e4+/e4-.
+```{r}
+task %>% count(as_factor(apoe4_allele))
+```
+
+Relabel the APOE e4+/- variable and adjust the contrast so e4- is the reference.
+```{r}
+task <- task %>% 
+  mutate(apoe4_allele = factor(apoe4_allele)) %>%
+  mutate(apoe4_allele = recode(apoe4_allele, `-1` = "e4+", `1` = "e4-")) 
+```
+
+## Age
+
+Convert age to numeric.
+```{r}
+task$s2_age <- as.numeric(task$s2_age)
+```
+
+Calculate age statistics.
+```{r}
+task %>%
+  group_by(apoe4_allele) %>%
+  summarise(mean = round(mean(s2_age), 1),
+            sd = round(sd(s2_age), 1))
+```
+
+Conduct Welch's t-test to examine differences in age.
+```{r}
+t.test(s2_age ~ apoe4_allele, data = task)
+```
+
+Calculate cohen's d for differences in age.
+```{r}
+cohens_d(s2_age ~ apoe4_allele, data = task) 
+```
+
+Run a two-sides JZS Bayes Factor (BF) test for differences in age.
+```{r}
+ttestBF(formula = s2_age ~ apoe4_allele, data = task) 
+```
+
+## Education
+
+Convert education to integer.
+```{r}
+task$edu <- as.integer(task$edu)
+```
+
+Calculate education statistics.
+```{r}
+task %>%
+  group_by(apoe4_allele) %>%
+  summarise(mean = round(mean(edu), 1),
+            sd = round(sd(edu), 1))
+```
+
+Conduct Welch's t-test to examine differences in education.
+```{r}
+t.test(edu ~ apoe4_allele, data = task) 
+```
+
+Calculate cohen's d for differences in education.
+```{r}
+cohens_d(edu ~ apoe4_allele, data = task) 
+```
+
+Run a two-sides JZS Bayes Factor (BF) test for differences in education.
+```{r}
+ttestBF(formula = edu ~ apoe4_allele, data = task) 
+```
+
+## BMI
+
+Convert BMI to numeric.
+```{r}
+task$bmi <- as.numeric(task$bmi)
+```
+
+Calculate BMI statistics.
+```{r}
+task %>%
+  group_by(apoe4_allele) %>%
+  summarise(mean = round(mean(bmi), 1),
+            sd = round(sd(bmi), 1))
+```
+
+Conduct Welch's t-test to examine differences in BMI.
+```{r}
+t.test(bmi ~ apoe4_allele, data = task) 
+```
+
+Calculate cohen's d for differences in BMI.
+```{r}
+cohens_d(bmi ~ apoe4_allele, data = task) 
+```
+
+Run a two-sides JZS Bayes Factor (BF) test for differences in BMI.
+```{r}
+ttestBF(formula = bmi ~ apoe4_allele, data = task) 
+```
+
+## BDI-II
+
+Convert BDI-II to integer.
+```{r}
+task$bdi <- as.integer(task$bdi)
+```
+
+Calculate BDI-II statistics.
+```{r}
+task %>%
+  group_by(apoe4_allele) %>%
+  summarise(mean = round(mean(bdi), 1),
+            sd = round(sd(bdi), 1))
+```
+
+Conduct Welch's t-test to examine differences in BDI-II.
+```{r}
+t.test(bdi ~ apoe4_allele, data = task) 
+```
+
+Calculate cohen's d for differences in BDI-II.
+```{r}
+cohens_d(bdi ~ apoe4_allele, data = task) 
+```
+
+Run a two-sides JZS Bayes Factor (BF) test for differences in BDI-II.
+```{r}
+ttestBF(formula = bdi ~ apoe4_allele, data = task) 
+```
+
+## BAI
+
+Convert BAI to integer.
+```{r}
+task$bai <- as.integer(task$bai)
+```
+
+Calculate BAI statistics.
+```{r}
+task %>%
+  group_by(apoe4_allele) %>%
+  summarise(mean = round(mean(bai), 1),
+            sd = round(sd(bai), 1))
+```
+
+Conduct Welch's t-test to examine differences in BAI.
+```{r}
+t.test(bai ~ apoe4_allele, data = task) 
+```
+
+Calculate cohen's d for differences in BAI.
+```{r}
+cohens_d(bai ~ apoe4_allele, data = task) 
+```
+
+Run a two-sides JZS Bayes Factor (BF) test for differences in BAI.
+```{r}
+ttestBF(formula = bai ~ apoe4_allele, data = task) 
+```
+
+## Handedness
+
+Convert handedness scores to integer, then create a new variable `right_hand` that identifies participants who were deemed right-handed (score of 61 or above).
+```{r}
+task <- task %>% 
+  mutate(hand = as.integer(hand)) %>%
+  mutate(right_hand = case_when(
+    hand > 60 ~ "yes",
+    hand <= 60 ~ "no"))
+```
+
+Calculate handedness statistics.
+```{r}
+task %>%
+  group_by(apoe4_allele) %>%
+  summarise(yes = sum(right_hand == "yes"),
+            no = sum(right_hand == "no"),
+            prop_yes = yes / (yes + no),
+            perc_yes = round(prop_yes * 100, 1))
+```
+
+Generate a contingency table for handedness.
+```{r}
+hand_table = table(task$right_hand, task$apoe4_allele)
+```
+
+Conduct chi-square test to examine differences in handedness.
+```{r}
+chisq.test(hand_table, correct = F) 
+```
+
+Calculate Cramer's V for differences in handedness.
+```{r}
+cramer_v(task$right_hand, task$apoe4_allele) 
+```
+
+Run a Bayes factor analysis.
+```{r}
+contingencyTableBF(hand_table, sampleType = "indepMulti", fixedMargin = "cols") 
+```
+
+Remove table from environment.
+```{r}
+rm(hand_table)
+```
+
+## Hormonal Birth Control
+
+Calculate hormonal birth control statistics.
+```{r}
+task %>% 
+  group_by(apoe4_allele) %>%
+  summarise(yes = sum(current_hbc_med_use == -1, na.rm = T),
+            no = sum(current_hbc_med_use == 1, na.rm = T),
+            na = sum(is.na(current_hbc_med_use)),
+            freq = yes / (yes + no),
+            perc = round(freq * 100, 1))
+```
+
+Generate a contingency table for hormonal birth control.
+```{r}
+hbc_table = table(task$current_hbc_med_use, task$apoe4_allele)
+```
+
+Conduct chi-square test to examine differences in hormonal birth control.
+```{r}
+chisq.test(hbc_table, correct = F) 
+```
+
+Calculate Cramer's V for differences in hormonal birth control.
+```{r}
+task <- mutate(task, current_hbc_med_use = as.character(current_hbc_med_use))
+cramer_v(task$current_hbc_med_use, task$apoe4_allele) 
+```
+
+Run a Bayes factor analysis.
+```{r}
+contingencyTableBF(hbc_table, sampleType = "indepMulti", fixedMargin = "cols") 
+```
+
+Remove table from environment.
+```{r}
+rm(hbc_table)
+```
+
+## Hormonal Replacement Therapy
+
+Amend the values for two participants who were initially listed as HRT users but, after further inspection, are not.
+```{r}
+# check old value, then replace
+task$hrt_use[task$id == "XXXX"] # 2 (Yes, currently) 
+task$hrt_use[task$id == "XXXX"] <- 1 # No
+
+# check old value, then replace
+task$hrt_use[task$id == "XXXX"] # 2 (Yes, currently) 
+task$hrt_use[task$id == "XXXX"] <- 1 # No
+```
+
+Calculate current HRT use statistics.
+```{r}
+task %>% 
+  group_by(apoe4_allele) %>%
+  summarise(yes = sum(hrt_use == 2, na.rm = T),
+            no = sum(hrt_use == 1 | hrt_use == 3, na.rm = T),
+            na = sum(is.na(hrt_use)),
+            freq = yes / (yes + no),
+            perc = round(freq * 100, 1))
+```
+
+Generate a contingency table for HRT use.
+```{r}
+task <- task %>%
+  mutate(hrt_current = case_when(
+    hrt_use == 2 ~ "yes",
+    hrt_use == 1 | hrt_use == 3 ~ "no",
+    is.na(hrt_use) ~ NA))
+
+hrt_table = table(task$hrt_current, task$apoe4_allele)
+```
+
+Conduct chi-square test to examine differences in current HRT use.
+```{r}
+chisq.test(hrt_table, correct = F) 
+```
+
+Calculate Cramer's V for differences in current HRT use.
+```{r}
+cramer_v(task$hrt_current, task$apoe4_allele) 
+```
+
+Run a Bayes factor analysis.
+```{r}
+contingencyTableBF(hrt_table, sampleType = "indepMulti", fixedMargin = "cols") 
+```
+
+Remove table from environment.
+```{r}
+rm(hrt_table)
+```
+
+## Menopause Status
+
+Calculate statistics for menopause status.
+```{r}
+task %>%
+  group_by(apoe4_allele) %>%
+  summarise(pre_n = sum(s1_meno_group == 1, na.rm = T),
+            peri_n = sum(s1_meno_group == 2, na.rm = T),
+            post_n = sum(s1_meno_group == 3, na.rm = T),
+            pre_freq = pre_n / (pre_n + (peri_n + post_n)),
+            peri_freq = peri_n / (peri_n + (pre_n + post_n)),
+            post_freq = post_n / (post_n + (pre_n + peri_n)),
+            pre_perc = round(pre_freq * 100, 1),
+            peri_perc = round(peri_freq * 100, 1),
+            post_perc = round(post_freq * 100, 1))
+```
+
+Generate a contingency table for menopause status.
+```{r}
+meno_table = table(task$s2_meno_group, task$apoe4_allele)
+```
+
+Conduct a chi-square to test for differences in menopause status.
+```{r}
+chisq.test(meno_table, correct = F)
+```
+
+Calculate Cramer's V for differences in menopause status.
+```{r}
+task <- mutate(task, s2_meno_group = as.character(s2_meno_group))
+cramer_v(task$s2_meno_group, task$apoe4_allele) 
+```
+
+Run a Bayes factor analysis.
+```{r}
+contingencyTableBF(meno_table, sampleType = "indepMulti", fixedMargin = "cols") 
+```
+
+Remove table from environment.
+```{r}
+rm(meno_table)
+```
+
+## Parental History of Alzheimer's Disease
+
+One participant said yes to everything and gave diagnosis, but is listed as no under memory loss (checked separately). Amend.
+```{r}
+task$enrol_memo_loss_parent[task$id == XXXX] <- -1
+```
+
+Generate a variable for parental history of Alzheimer's.
+```{r}
+task <- task %>%
+  mutate_at(vars(starts_with("enrol_memo")), as_factor) %>%
+  mutate(alz_hist = case_when(
+    enrol_memo_loss_parent == "Yes" & enrol_memo_loss_cause == "AD" & enrol_memo_doc_diag == "Yes" ~ "Yes",
+    .default = "No"))
+```
+
+Calculate parental history statistics.
+```{r}
+task %>% 
+  group_by(apoe4_allele) %>%
+  summarise(yes = sum(alz_hist == "Yes", na.rm = T),
+            no = sum(alz_hist == "No", na.rm = T),
+            freq = yes / (yes + no),
+            perc = round(freq * 100, 1))
+```
+
+Generate a contingency table for parental history.
+```{r}
+alz_table = table(task$alz_hist, task$apoe4_allele)
+```
+
+Conduct chi-square test to examine differences in parental history.
+```{r}
+chisq.test(alz_table, correct = F) 
+```
+
+Calculate Cramer's V for differences in parental history.
+```{r}
+cramer_v(task$alz_hist, task$apoe4_allele)
+```
+
+Run a Bayes factor analysis.
+```{r}
+contingencyTableBF(alz_table, sampleType = "indepMulti", fixedMargin = "cols") 
+```
+
+Remove table from environment.
+```{r}
+rm(alz_table)
+```
+
+Plot parental history of AD.
+```{r}
+task %>%
+  group_by(apoe4_allele) %>%
+  summarise(yes = sum(alz_hist == "Yes", na.rm = T),
+            no = sum(alz_hist == "No", na.rm = T),
+            freq = yes / (yes + no),
+            perc = round(freq * 100, 1)) %>%
+  ggplot(aes(x = apoe4_allele, y = perc, fill = apoe4_allele)) +
+  geom_col() +
+  theme_bw() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.text = element_text(family = "sans", colour = "black", size = 11),
+        legend.title = element_blank(), 
+        legend.position = "None",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_discrete(name = "APOE ε4 Carrier Status", labels = c("ε4+", "ε4-")) +
+  scale_y_continuous(name = "Parental History of AD (%)", lim = c(0, 100)) +
+  scale_colour_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) 
+```
+
+
+# Alzheimer's Plasma Biomarker Analysis
+
+## AB42-40 Ratio
+
+Check NAs by session for AB42/40 ratio.
+```{r}
+task %>% count(is.na(ab42_to_ab40_s1), is.na(ab42_to_ab40_s2)) 
+```
+
+Create new dataframe for AB42/40 ratio, removing those who have no data at session 2.
+```{r}
+ab <- task %>% filter(!is.na(ab42_to_ab40_s2)) 
+```
+
+Check whether there were issues with AB42/40 at session 2.
+```{r}
+ab %>% count(str_detect(ad_biomarker_issues_notes_s2, "AB40")) 
+ab %>% count(str_detect(ad_biomarker_issues_notes_s2, "AB42")) 
+```
+
+Exclude this participant.
+```{r}
+ab <- filter(ab, !str_detect(ad_biomarker_issues_notes_s2, "AB40")) 
+```
+
+Check distribution of values.
+```{r}
+hist(ab$ab42_to_ab40_s2)
+```
+
+Check for extreme outliers using boxplots.
+```{r}
+# boxplot across groups
+boxplot(ab$ab42_to_ab40_s2) 
+
+# boxplot by group
+boxplot(ab$ab42_to_ab40_s2 ~ ab$apoe4_allele) 
+```
+
+Calculate AB42/40 statistics.
+```{r}
+ab %>%
+  group_by(apoe4_allele) %>%
+  summarise(n = sum(!is.na(ab42_to_ab40_s2)),
+            mean = round(mean(ab42_to_ab40_s2, na.rm = T), 3),
+            sd = round(sd(ab42_to_ab40_s2, na.rm = T), 3))
+```
+
+Conduct Welch's t-test to examine differences in AB42/40.
+```{r}
+t.test(ab42_to_ab40_s2 ~ apoe4_allele, data = ab) 
+```
+
+Calculate cohen's d for differences in AB42/40.
+```{r}
+cohens_d(ab42_to_ab40_s2 ~ apoe4_allele, data = ab) 
+```
+
+Run a two-sides JZS Bayes Factor (BF) test for differences in AB42/40.
+```{r}
+ttestBF(formula = ab42_to_ab40_s2 ~ apoe4_allele, data = ab) 
+```
+
+Plot differences in AB42/42 ratio.
+```{r}
+set.seed(123)
+ggplot(ab, aes(x = apoe4_allele, y = ab42_to_ab40_s2, fill = apoe4_allele)) +
+  geom_flat_violin(aes(fill = apoe4_allele),
+                   position = position_nudge(x = .1, y = 0),
+                   adjust = 1.5, trim = TRUE, colour = NA) +
+  geom_point(aes(x = as.numeric(apoe4_allele)-0.2, y = ab42_to_ab40_s2, colour = apoe4_allele),
+             position = position_jitter(width = .07), size = 6, shape = 20, alpha = 0.6) +
+  geom_boxplot(aes(x = apoe4_allele, y = ab42_to_ab40_s2, fill = apoe4_allele),
+               outlier.shape = NA, width = .15, colour = "black") +
+  theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.text = element_text(family = "sans", colour = "black", size = 11),
+        legend.title = element_blank(), 
+        legend.position = "None",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_discrete(name = "APOE ε4 Carrier Status", labels = c("ε4+", "ε4-")) +
+  scale_y_continuous(name = "Plasma Aβ42/40 Ratio", limits = c(0.04, 0.14), breaks = seq(0.04, 0.14, by = 0.02)) +
+  scale_colour_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  annotate("segment", x = 1, xend = 2, y = 0.136, yend = 0.136, size = 0.5) +
+  annotate("text", x = 1.5, y = 0.138, label = "*", size = 6)
+```
+
+Save the figure as a PDF.
+```{r}
+ggsave(filename = "input-file-name.pdf", width = 4.5, height = 3.5, device = cairo_pdf)
+```
+
+## p-tau 231
+
+Check NAs by session for p-tau 231.
+```{r}
+task %>% count(is.na(p_tau231_s1), is.na(p_tau231_s2)) 
+```
+
+Create new dataframe for p-tau 231, removing those who have no data at session 2.
+```{r}
+tau <- filter(task, !is.na(p_tau231_s2))
+```
+
+Check whether there were issues with p-tau 231 at session 2.
+```{r}
+tau %>% count(str_detect(ad_biomarker_issues_notes_s2, "pTau231")) 
+```
+
+Exclude these participants.
+```{r}
+tau <- filter(tau, !str_detect(ad_biomarker_issues_notes_s2, "pTau231")) 
+```
+
+Check distribution of values.
+```{r}
+hist(tau$p_tau231_s2) 
+```
+
+Check for extreme outliers using boxplots.
+```{r}
+# boxplot across groups
+boxplot(tau$p_tau231_s2) 
+
+# boxplot by group
+boxplot(tau$p_tau231_s2 ~ tau$apoe4_allele) 
+```
+
+Replot as a raincloud plot
+```{r}
+set.seed(123)
+ggplot(tau, aes(x = apoe4_allele, y = p_tau231_s2, fill = apoe4_allele)) +
+  geom_flat_violin(aes(fill = apoe4_allele),
+                   position = position_nudge(x = .1, y = 0),
+                   adjust = 1.5, trim = TRUE, colour = NA) +
+  geom_point(aes(x = as.numeric(apoe4_allele)-0.2, y = p_tau231_s2, colour = apoe4_allele),
+              position = position_jitter(width = .07), size = 6, shape = 20, alpha = 0.6) +
+  geom_boxplot(aes(x = apoe4_allele, y = p_tau231_s2, fill = apoe4_allele),
+               outlier.shape = NA, width = .15, colour = "black") +
+  theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.text = element_text(family = "sans", colour = "black", size = 11),
+        legend.title = element_blank(), 
+        legend.position = "None",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_discrete(name = "APOE ε4 Carrier Status", labels = c("ε4+", "ε4-")) +
+  scale_y_continuous(name = "Plasma P-tau231") +
+  scale_colour_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) 
+```
+
+Save the figure as a PDF.
+```{r}
+ggsave(filename = "input-file-name.pdf", width = 4.5, height = 3.5, device = cairo_pdf)
+```
+
+Remove the outliers.
+```{r}
+tau <- filter(tau, p_tau231_s2 < 60) 
+```
+
+Re-check the distribution.
+```{r}
+hist(tau$p_tau231_s2) 
+```
+
+Regenerate the raincloud plot.
+```{r}
+set.seed(123)
+ggplot(tau, aes(x = apoe4_allele, y = p_tau231_s2, fill = apoe4_allele)) +
+  geom_flat_violin(aes(fill = apoe4_allele),
+                   position = position_nudge(x = .1, y = 0),
+                   adjust = 1.5, trim = TRUE, colour = NA) +
+  geom_point(aes(x = as.numeric(apoe4_allele)-0.2, y = p_tau231_s2, colour = apoe4_allele),
+              position = position_jitter(width = .07), size = 6, shape = 20, alpha = 0.6) +
+  geom_boxplot(aes(x = apoe4_allele, y = p_tau231_s2, fill = apoe4_allele),
+               outlier.shape = NA, width = .15, colour = "black") +
+  theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.text = element_text(family = "sans", colour = "black", size = 11),
+        legend.title = element_blank(), 
+        legend.position = "None",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_discrete(name = "APOE ε4 Carrier Status", labels = c("ε4+", "ε4-")) +
+  scale_y_continuous(name = "Plasma P-tau231") +
+  scale_colour_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) 
+```
+
+Save the figure as a PDF.
+```{r}
+ggsave(filename = "input-file-name.pdf", width = 4.5, height = 3.5, device = cairo_pdf)
+```
+
+Calculate p-tau 231 statistics.
+```{r}
+tau %>%
+  group_by(apoe4_allele) %>%
+  summarise(n = sum(!is.na(p_tau231_s2)),
+            mean = round(mean(p_tau231_s2, na.rm = T), 3),
+            sd = round(sd(p_tau231_s2, na.rm = T), 3))
+```
+
+Conduct Welch's t-test to examine differences in p-tau 231.
+```{r}
+t.test(p_tau231_s2 ~ apoe4_allele, data = tau)
+```
+
+Calculate cohen's d for differences in p-tau 231.
+```{r}
+cohens_d(p_tau231_s2 ~ apoe4_allele, data = tau)
+```
+
+Run a two-sides JZS Bayes Factor (BF) test for differences in p-tau 231.
+```{r}
+ttestBF(formula = p_tau231_s2 ~ apoe4_allele, data = tau)
+```
+
+Plot differences in p-tau 231.
+```{r}
+ggplot(tau, aes(x = apoe4_allele, y = p_tau231_s2, fill = apoe4_allele)) +
+  geom_flat_violin(aes(fill = apoe4_allele),
+                   position = position_nudge(x = .1, y = 0),
+                   adjust = 1.5, trim = TRUE, colour = NA) +
+  geom_point(aes(x = as.numeric(apoe4_allele)-0.2, y = p_tau231_s2, colour = apoe4_allele),
+             position = position_jitter(width = .065), size = 6, shape = 20, alpha = 0.8) +
+  geom_boxplot(aes(x = apoe4_allele, y = p_tau231_s2, fill = apoe4_allele),
+               outlier.shape = NA, width = .15, colour = "black") +
+ theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.text = element_text(family = "sans", colour = "black", size = 11),
+        legend.title = element_blank(), 
+        legend.position = "None",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_discrete(name = "APOE ε4 Carrier Status", labels = c("ε4+","ε4-")) +
+  scale_y_continuous(name = "Plasma P-tau 231") +
+  scale_colour_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) 
+```
+
+# Neuropsych: Verbal Memory
+
+Prepare the data for analysis. Start by standardising AB42/40 and chronological age, then change the coding scheme for APOE.
+```{r}
+# standardise
+ab <- ab %>% 
+  mutate(ab42_ab40_std = scale(ab42_to_ab40_s2, center = TRUE, scale = TRUE),
+         s2_age_std = scale(s2_age, center = TRUE, scale = TRUE)) %>%
+  mutate(ab42_ab40_std = as.numeric(ab42_ab40_std),
+         s2_age_std = as.numeric(s2_age_std))
+
+# set contrasts
+contrasts(ab$apoe4_allele) <- c(-1, 1)
+```
+
+## CVLT - Short-Delay Free Recall
+
+Model the short-delay free recall as a function of APOE and AB42/40 while adjusting for age.
+```{r}
+sfr_mod <- lm(data = ab, formula = cvlt_sfr ~ apoe4_allele * ab42_ab40_std + s2_age_std) 
+```
+
+Plot the model to inspect issues with assumptions.
+```{r}
+plot(sfr_mod) 
+```
+
+Generate a summary.
+```{r}
+summary(sfr_mod) 
+```
+
+Plot the age association.
+```{r}
+ggplot(ab, aes(x = s2_age_std, y = cvlt_sfr, colour = apoe4_allele, fill = apoe4_allele)) +
+  geom_point(size = 6, shape = 20, alpha = 0.6) +
+  geom_smooth(method = "lm", alpha = 0.6) +
+  theme_classic() +
+  theme(axis.text.x = element_text(family = "sans", colour = "black", size = 11),
+        axis.text.y = element_text(family = "sans", colour = "black", size = 11),
+        axis.title.x = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        axis.title.y = element_text(family = "sans", face = "bold", colour = "black", size = 11),
+        legend.text = element_text(family = "sans", colour = "black", size = 11),
+        legend.title = element_blank(), 
+        legend.position = "top",
+        strip.text = element_text(family = "sans", colour = "black", size = 11)) +
+  scale_x_continuous(name = "Age (Z-Score)") +
+  scale_y_continuous(name = "CVLT Short-Delay Free Recall", limits = c(0, 16), breaks = seq(0, 16, by = 4)) +
+  scale_colour_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-")) +
+  scale_fill_manual(values = c("#00AFBB", "#FC4E07"), labels = c("ε4+", "ε4-"))
+```
+
+
+## CVLT - Long-Delay Free Recall
+
+Model the long-delay free recall as a function of APOE, AB42/40 and age.
+```{r}
+lfr_mod <- lm(data = ab, formula = cvlt_lfr ~ apoe4_allele * ab42_ab40_std + s2_age_std) 
+```
+
+Plot the model to inspect issues with assumptions.
+```{r}
+plot(lfr_mod) 
+```
+
+Generate a summary.
+```{r}
+summary(lfr_mod)
+```
+
+## CVLT - Recognition
+
+Model recognition as a function of APOE, AB42/40 and age.
+```{r}
+rg_mod <- lm(data = ab, formula = cvlt_rg ~ apoe4_allele * ab42_ab40_std + s2_age_std) 
+```
+
+Plot the model to inspect issues with assumptions.
+```{r}
+plot(rg_mod) 
+```
+
+Generate a summary.
+```{r}
+summary(rg_mod) 
+```
+
+# Export Data
+
+Generate a new data frame containing key demographic data for use in trial-level analysis. 
+```{r}
+demo <- select(task, id, apoe4_allele, s2_age, ab42_to_ab40_s2, p_tau231_s2)
+```
+
+Export the new data frame as a csv.
+```{r}
+write_csv(demo, "input-file-name.csv")
+```
+
+Generate a new data frame containing IDs for the AB42/40 ratio.
+```{r}
+ab_id <- select(ab, id)
+```
+
+Export the new data frame as a text file.
+```{r}
+write_tsv(ab_id, "input-file-name.txt")
+```

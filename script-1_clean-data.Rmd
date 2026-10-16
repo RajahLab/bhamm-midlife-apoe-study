@@ -1,0 +1,374 @@
+---
+title: "Script 1: Clean Data"
+author: "Rikki Lissaman"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Overview
+
+## Code Description
+
+This script contains code that imports the Master database for the Brain Health at Midlife and Menopause (BHAMM) Study, filters out participants that do not meet the relevant inclusion/exclusion criteria (for BHAMM and for this specific project), and then outputs data for later analyses.
+
+Input(s):
+
+  * SPSS file of the BHAMM Master database (Last updated: November 2024)
+
+Output(s):
+
+  * SPSS file containing cleaned Session 2 (behavioral task) data.
+  * SPSS file containing cleaned Session 2 (imaging) data for CS analysis.
+  * SPSS file containing cleaned Session 2 (imaging) data for CR analysis.
+  
+Note: Identifiable information (e.g., file names, subject IDs) have been replaced by placeholders (e.g., subject IDs appear as XXXX).
+  
+# Packages
+
+Load all required packages.
+```{r}
+# package versions are listed to aid de-bugging - you should not need these exact versions
+library(haven) # version 2.5.4
+library(janitor) # version 2.2.0
+library(tidyr) # version 1.3.1
+library(dplyr) # version 1.1.4
+library(stringr) # version 1.5.1
+```
+
+# Import Data
+
+Import the BHAMM study Master database and "clean" the variable names (i.e., make them all lower-case with spaces replaced by underscores, etc).
+```{r}
+bhamm <- read_sav("insert-file-name.sav") %>% clean_names() 
+```
+
+# General BHAMM Exclusions
+
+Filter out participants who were listed as Session 1 exclusions. In doing so, this will remove anyone who should have been excluded at enrolment and/or Session 1.
+```{r}
+session_1 <- filter(bhamm, s1_exclude == 1) 
+```
+
+Optional: check the reasons for exclusion, consult the variable `s1_behav_issues_notes` for hints.
+```{r}
+# s1_issues <- bhamm %>% filter(s1_exclude == -1) %>% select(id, s1_behav_issues_notes)
+```
+
+Filter out participants who were older than 65 years of age at Session 1.
+```{r}
+session_1 <- filter(session_1, s1_age < 65) 
+```
+
+Filter out participants who reported undergoing a bilateral oophorectomy.
+```{r}
+session_1 <- filter(session_1, !enrol_ovaries %in% c(3, 4)) 
+```
+
+Filter out participants who reported having hypertension at enrolment or study, were not taking relevant meds, and have objective measures showing hypertension.
+```{r}
+# identify participants who said yes to hypertension at enrolment or later 
+session_1 %>% count(enrol_med_cond_hypertension, med_con_hypertension)
+
+# identify participants who said yes at enrolment OR at study AND said no to every relevant medicine at enrolment AND at study (relevant medicines identified through Mayo Clinic)
+hyper_ids <- session_1 %>%
+  filter(
+    ((enrol_med_cond_hypertension %in% c(-1)) & (!enrol_meds_diuretic %in% c(-1) & 
+                                                 !enrol_meds_ace_inhibitor %in% c(-1) & 
+                                                 !enrol_meds_ar_bs %in% c(-1) & 
+                                                 !enrol_meds_ccb %in% c(-1) & 
+                                                 !enrol_meds_alpha_blockers %in% c(-1) &
+                                                 !enrol_meds_statin %in% c(-1) &
+                                                 !meds_diuretic %in% c(-1) & 
+                                                 !meds_ace_inhibitor %in% c(-1) & 
+                                                 !meds_arb %in% c(-1) & 
+                                                 !meds_ccb %in% c(-1) & 
+                                                 !meds_b_as %in% c(-1) &
+                                                 !meds_statin %in% c(-1))) |
+    ((med_con_hypertension %in% c(-1)) & (!enrol_meds_diuretic %in% c(-1) & 
+                                          !enrol_meds_ace_inhibitor %in% c(-1) & 
+                                          !enrol_meds_ar_bs %in% c(-1) & 
+                                          !enrol_meds_ccb %in% c(-1) & 
+                                          !enrol_meds_alpha_blockers %in% c(-1) & 
+                                          !enrol_meds_statin %in% c(-1) &
+                                          !meds_diuretic %in% c(-1) & 
+                                          !meds_ace_inhibitor %in% c(-1) & 
+                                          !meds_arb %in% c(-1) & 
+                                          !meds_ccb %in% c(-1) & 
+                                          !meds_b_as %in% c(-1) &
+                                          !meds_statin %in% c(-1))))
+  
+# check whether these participants had high systolic blood pressure (>140mm/Hg)
+hyper_ids %>% filter(bp_systolic_s1 > 140 | bp_systolic_s2)
+
+# check whether these participants had high diastolic blood pressure (>90mm/Hg) 
+hyper_ids %>% filter(bp_diastolic_s1 > 90 | bp_diastolic_s2 > 90) 
+
+# check whether these participants had were coded as hypertensive
+hyper_ids %>% filter(bp_coded_s1 == 4 | bp_coded_s2 == 4)
+
+# check whether these participants have notes under Session 1 or Session 2 for uncontrolled hypertension
+hyper_ids %>% filter(str_detect(s1_behav_issues_notes, "Uncontrolled") | str_detect(s2_issues_notes, "Uncontrolled")) 
+
+# check if 5055 was listed as an exclusion at S1 or S2
+hyper_ids %>% count(s1_exclude, s2_exclusion) 
+
+# filter out the participant with uncontrolled hypertension
+session_1 <- filter(session_1, id != XXXX) 
+```
+
+Filter out participants with diabetes.
+```{r}
+session_1 <- filter(session_1, !med_con_diabetes %in% c(-1))
+```
+
+Filter out participants with a history of estrogen-related cancers.
+```{r}
+session_1 <- filter(session_1, !enrol_med_cond_breast_cancer %in% c(-1) | !med_con_breast_cancer %in% c(-1))
+```
+
+Filter out participants with a neurological diagnosis.
+```{r}
+session_1 <- filter(session_1, !med_con_neurological %in% c(-1))
+```
+
+Filter out participants who smoke more than 40 cigarettes per day.
+```{r}
+session_1 <- filter(session_1, is.na(enrol_smoke_qty) | enrol_smoke_qty <= 40) 
+session_1 <- filter(session_1, is.na(current_cigarettes_daily) | current_cigarettes_daily <= 40)
+```
+
+# Session 1 Exclusions
+
+Because we used `s1_exclude` at the start of this script, it should have pulled out anyone who had an issue at enrolment and/or Session 1. After all, there are no data to analyse at enrolment alone. Nevertheless, it is worth checking these.
+
+Filter out participants who have an MMSE score less than 26.
+```{r}
+session_1 <- filter(session_1, is.na(mmse) | mmse >= 26)
+```
+
+Filter out participants who have a MoCA score less than 19. Note: If there were participants with a score less than 19, we would need to check their ethnoracial group to ensure the appropriate cut-off has been used. 
+```{r}
+session_1 <- filter(session_1, is.na(moca) | moca >= 19)
+```
+
+Filter out participants who have a BDI-II score > 19.
+```{r}
+session_1 <- filter(session_1, is.na(bdi) | bdi <= 19) 
+```
+
+Filter out participants who have a BAI score > 21.
+```{r}
+session_1 <- filter(session_1, is.na(bai) | bai <= 21) 
+```
+
+Filter out participants who have more than 2 positive MINI modules.
+```{r}
+session_1 <- filter(session_1, is.na(mini) | mini < 3) 
+```
+
+# Study-Specific Exclusions
+
+Filter out participants who were not middle-aged at both sessions.
+```{r}
+session_1 <- filter(session_1, s1_age_group == 2 & s2_age_group == 2)
+```
+
+Filter out males.
+```{r}
+session_1 <- filter(session_1, sex == 1) 
+```
+
+Given our focus on sex, filter out participants whose current gender identity does not match their sex assigned at birth. Note: for sex, labels are "-1 [Male]" and "1 [Female]"; for gender, labels are "1 [Man]" and "2 [Woman]".
+```{r}
+session_1 <- filter(session_1, (sex == -1 & enrol_gender == 1) | (sex == -1 & is.na(enrol_gender)) | (sex == 1 & enrol_gender == 2) | (sex == 1 & is.na(enrol_gender)))
+```
+
+Filter out participants whose BMI is greater than 40.
+```{r}
+session_1 <- filter(session_1, is.na(bmi) | bmi <= 40) 
+```
+
+Filter out participants whose menopause status at Session 1 and Session 2 is indeterminate.
+```{r}
+session_1 <- filter(session_1, !s1_meno_group %in% c(4) & !s2_meno_group %in% c(4))
+```
+
+Filter out participants for whom we do not have APOE e4 data.
+```{r}
+session_1 <- filter(session_1, !is.na(apoe4_allele)) 
+```
+
+# Session 2 Exclusions
+
+Filter out participants for whom there is no session 2 date. This implies that they have not attended session 2 (i.e., the imaging session).
+```{r}
+session_2 <- filter(session_1, !is.na(s2_date))
+```
+
+Filter out those who are session 2 (MRI) exclusions. Specifically, those who are exclusions due to incidental findings, claustrophobia, or undisclosed medical conditions. 
+```{r}
+session_2 <- filter(session_2, !s2_reason_exclusion %in% c(1, 2, 4))
+```
+
+Filter out participants who are pregnant.
+```{r}
+session_2 <- filter(session_2, !pregnant_now %in% c(-1)) 
+```
+
+## Task fMRI Exclusions
+
+Filter out participants who were scanned with old MRI parameters.
+```{r}
+session_2_task <- filter(session_2, !str_detect(s2_task_issues, "Old MRI Protocol")) 
+```
+
+The database includes incorrect values for sub-XXXX. Hard run 1 was excluded incorrectly from their onset file (checked separately). This has now been corrected but needs to be amended here.
+```{r}
+# check old CS rate and then replace
+session_2_task$cs_rate_hard[session_2_task$id == "XXXX"] # 0.3055556
+session_2_task$cs_rate_hard[session_2_task$id == "XXXX"] <- 0.22916667
+
+# check old CR rate and then replace
+session_2_task$cr_rate_hard[session_2_task$id == "XXXX"] # 0.8055556
+session_2_task$cr_rate_hard[session_2_task$id == "XXXX"] <- 0.7916667
+```
+
+Identify participants who have one or more "unique errors" (UEs) in their responses (i.e., they pressed a button that does not correspond to a valid option).
+```{r}
+session_2_task %>%
+  select(id, starts_with("ue_")) %>%
+  filter_at(vars(-id), any_vars(. > 0)) 
+```
+
+The UE rates shown above are generally low. However, there are two participants with UE rates above our pre-stated thresholds: sub-XXXX and sub-XXXX. Sub-XXXX had UEs across multiple runs and, notably, their CR score was 0 (see below). They will therefore be excluded in subsequent steps. Sub-XXXX, by contrast, had UEs on one run only: hard run 1 [actually run 5]. The issue was spotted and corrected during scanning. Thus, replace values for CS and CR rate hard with this run removed.
+```{r}
+# check old CS rate and then replace
+session_2_task$cs_rate_hard[session_2_task$id == "XXXX"] # 0.3125 
+session_2_task$cs_rate_hard[session_2_task$id == "XXXX"] <- 0.3611111
+
+# check old CR rate and then replace
+session_2_task$cr_rate_hard[session_2_task$id == "XXXX"] # 0.6041667
+session_2_task$cr_rate_hard[session_2_task$id == "XXXX"] <- 0.6944444
+```
+
+Filter out participants who did not provide at least one source correct response on the easy and hard task.
+```{r}
+session_2_task <- filter(session_2_task, cs_rate_easy != 0 & cs_rate_hard != 0)
+```
+
+Filter out participants who performed below chance in terms of correct rejections (1/6 = 0.16).
+```{r}
+session_2_task <- filter(session_2_task, cr_rate_easy >= 0.16 & cr_rate_hard >= 0.16)
+```
+
+Change task variable types to numeric.
+```{r}
+session_2_task <- session_2_task %>%
+  mutate_at(vars(ends_with("easy")), as.numeric) %>%
+  mutate_at(vars(ends_with("hard")), as.numeric) %>%
+  mutate(s2_age = as.numeric(s2_age))
+```
+
+Run models regressing age on correct source, recognition, and misses.
+```{r}
+lm_cs_easy <- lm(cs_rate_easy ~ s2_age, data = session_2_task)
+lm_cs_hard <- lm(cs_rate_hard ~ s2_age, data = session_2_task)
+lm_recog_easy <- lm(recog_rate_easy ~ s2_age, data = session_2_task)
+lm_recog_hard <- lm(recog_rate_hard ~ s2_age, data = session_2_task)
+lm_miss_easy <- lm(misses_rate_easy ~ s2_age, data = session_2_task)
+lm_miss_hard <- lm(misses_rate_hard ~ s2_age, data = session_2_task)
+```
+
+Calculate Cook's D for each regression model and store.
+```{r}
+cooks_d <- data.frame(id = session_2_task$id, 
+                      cs_easy_d = cooks.distance(lm_cs_easy),
+                      cs_hard_d = cooks.distance(lm_cs_hard),
+                      recog_easy_d = cooks.distance(lm_recog_easy),
+                      recog_hard_d = cooks.distance(lm_recog_hard),
+                      miss_easy_d = cooks.distance(lm_miss_easy),
+                      miss_hard_d = cooks.distance(lm_miss_hard))
+```
+
+For each measure (correct source, recognition, misses), determine whether a given participant's Cook D value is more than 3 standard deviations higher than the mean. After calculating these values, sum across the outlier columns. 
+```{r}
+cooks_d <- cooks_d %>%
+  mutate(cs_easy_outlier = case_when(cs_easy_d >= (mean(cs_easy_d) + 3*sd(cs_easy_d)) ~ 1,
+                                     cs_easy_d < (mean(cs_easy_d) + 3*sd(cs_easy_d)) ~ 0),
+         cs_hard_outlier = case_when(cs_hard_d >= (mean(cs_hard_d) + 3*sd(cs_hard_d)) ~ 1,
+                                     cs_hard_d < (mean(cs_hard_d) + 3*sd(cs_hard_d)) ~ 0),
+         recog_easy_outlier = case_when(recog_easy_d >= (mean(recog_easy_d) + 3*sd(recog_easy_d)) ~ 1,
+                                     recog_easy_d < (mean(recog_easy_d) + 3*sd(recog_easy_d)) ~ 0),
+         recog_hard_outlier = case_when(recog_hard_d >= (mean(recog_hard_d) + 3*sd(recog_hard_d)) ~ 1,
+                                     recog_hard_d < (mean(recog_hard_d) + 3*sd(recog_hard_d)) ~ 0),
+         miss_easy_outlier = case_when(miss_easy_d >= (mean(miss_easy_d) + 3*sd(miss_easy_d)) ~ 1,
+                                     miss_easy_d < (mean(miss_easy_d) + 3*sd(miss_easy_d)) ~ 0),
+         miss_hard_outlier = case_when(miss_hard_d >= (mean(miss_hard_d) + 3*sd(miss_hard_d)) ~ 1,
+                                     miss_hard_d < (mean(miss_hard_d) + 3*sd(miss_hard_d)) ~ 0)) %>%
+  mutate(total_outliers = rowSums(across(ends_with("outlier")))) 
+```
+
+Checker whether any participants were deemed to be outliers on 3 or more measures.
+```{r}
+cooks_d %>% filter(total_outliers >= 3)
+```
+
+Remove all irrelevant objects from environment.
+```{r}
+rm(lm_cs_easy)
+rm(lm_cs_hard)
+rm(lm_miss_easy)
+rm(lm_miss_hard)
+rm(lm_recog_easy)
+rm(lm_recog_hard)
+rm(cooks_d)
+```
+
+Check to see if any of the remaining participants have CS/CR values that are 3 or more SDs from the mean.
+```{r}
+session_2_task %>% filter(cs_rate_easy < mean(cs_rate_easy) - (3*sd(cs_rate_easy)))
+session_2_task %>% filter(cs_rate_hard < mean(cs_rate_hard) - (3*sd(cs_rate_hard)))
+session_2_task %>% filter(cr_rate_easy < mean(cr_rate_easy) - (3*sd(cr_rate_easy))) 
+session_2_task %>% filter(cr_rate_hard < mean(cr_rate_hard) - (3*sd(cr_rate_hard)))
+```
+
+Filter out these participants.
+```{r}
+session_2_task <- filter(session_2_task, !id %in% c(XXXX, XXXX, XXXX))
+```
+
+Remove participants who failed fMRI QC (checked separately using insert-file-name.xlsx). 
+```{r}
+session_2_imaging <- filter(session_2_task, !id %in% c(XXXX, XXXX, XXXX, XXXX, XXXX, XXXX, XXXX, XXXX, XXXX))
+```
+
+Remove participants who had fewer than 8 events for correct source. This step is necessary for PLS analyses centered on CS (PLS requires 8+ events of interest).
+```{r}
+session_2_cs <- filter(session_2_imaging, num_cs_easy >= 8 & num_cs_hard >= 8) 
+```
+
+Remove participants who had fewer than 8 events for correct rejections. This step is necessary for PLS analyses centered on CR (PLS requires 8+ events of interest).
+```{r}
+session_2_cr <- filter(session_2_imaging, num_cr_easy >= 8 & num_cr_hard >= 8) 
+```
+
+# Export Data
+
+Save Session 2 behavioural (task) data as SPSS file.
+```{r}
+write_sav(session_2_task, "insert-file-name.sav")
+```
+
+Save Session 2 imaging (CS) data as SPSS file.
+```{r}
+write_sav(session_2_cs, "insert-file-name.sav")
+```
+
+Save Session 2 imaging (CR) data as SPSS file.
+```{r}
+write_sav(session_2_cr, "insert-file-name.sav")
+```
